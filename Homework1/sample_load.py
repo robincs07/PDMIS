@@ -8,7 +8,12 @@ import cv2
 # This is the scene we are going to load.
 # support a variety of mesh formats, such as .glb, .gltf, .obj, .ply
 ### put your scene path ###
-test_scene = "replica_v1/apartment_0/habitat/mesh_semantic.ply"
+test_scene = "apartment_0/habitat/mesh_semantic.ply"
+
+# Data collection 
+f= open("Pose_data_1F.txt", 'a')
+
+
 
 sim_settings = {
     "scene": test_scene,  # Scene path
@@ -125,15 +130,31 @@ print("#############################")
 def navigateAndSee(action=""):
     if action in action_names:
         observations = sim.step(action)
-        #print("action: ", action)
+        print("action: ", action)
+        
 
         cv2.imshow("RGB", transform_rgb_bgr(observations["color_sensor"]))
         cv2.imshow("depth", transform_depth(observations["depth_sensor"]))
         cv2.imshow("semantic", transform_semantic(observations["semantic_sensor"]))
+
+        RGB_Image=transform_rgb_bgr(observations["color_sensor"])
+        Depth_Image=transform_depth(observations["depth_sensor"])
+        Semantic_Image=transform_semantic(observations["semantic_sensor"])
+
+        # RGB_Image shape: (512, 512, 3), Depth_Image shape: (512, 512, 1), Semantic_Image shape: (512, 512, 3)
+        # print(RGB_Image.shape)
+        # print(Depth_Image.shape)
+        # print(Semantic_Image.shape)
+
         agent_state = agent.get_state()
         sensor_state = agent_state.sensor_states['color_sensor']
         print("camera pose: x y z rw rx ry rz")
         print(sensor_state.position[0],sensor_state.position[1],sensor_state.position[2],  sensor_state.rotation.w, sensor_state.rotation.x, sensor_state.rotation.y, sensor_state.rotation.z)
+        f.write(f"{sensor_state.position[0]} {sensor_state.position[1]} {sensor_state.position[2]} {sensor_state.rotation.w} {sensor_state.rotation.x} {sensor_state.rotation.y} {sensor_state.rotation.z}\n")
+        # RGB list length: [512][512][3]
+        f.write(f"RGB image: {RGB_Image.tolist()}\n")
+        f.write(f"Depth_image: {Depth_Image.tolist()}\n")
+        f.write(f"Semantic_image: {Semantic_Image.tolist()}\n")
 
 
 action = "move_forward"
@@ -155,6 +176,7 @@ while True:
         print("action: RIGHT")
     elif keystroke == ord(FINISH):
         print("action: FINISH")
+        f.close()
         break
     else:
         print("INVALID KEY")
