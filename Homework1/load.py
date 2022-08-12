@@ -11,7 +11,7 @@ import cv2
 test_scene = "apartment_0/habitat/mesh_semantic.ply"
 
 # Data collection 
-f= open("GT_Pose.txt", 'w')
+f= open("Data_collection/first_floor/GT_Pose.txt", 'w')
 
 Photo_Num=0
 
@@ -155,9 +155,9 @@ def navigateAndSee(action=""):
         print(sensor_state.position[0],sensor_state.position[1],sensor_state.position[2],  sensor_state.rotation.w, sensor_state.rotation.x, sensor_state.rotation.y, sensor_state.rotation.z)
         f.write(f"{sensor_state.position[0]} {sensor_state.position[1]} {sensor_state.position[2]} {sensor_state.rotation.w} {sensor_state.rotation.x} {sensor_state.rotation.y} {sensor_state.rotation.z}\n")
         # RGB list length: [512][512][3]
-        cv2.imwrite('rgb/%d.png' %Photo_Num, transform_rgb_bgr(observations["color_sensor"]))
-        cv2.imwrite('depth/%d.png' %Photo_Num, transform_depth(observations["depth_sensor"]))
-        cv2.imwrite('semantic/%d.png' %Photo_Num, transform_semantic(observations["semantic_sensor"]))
+        cv2.imwrite('Data_collection/first_floor/rgb/%d.png' %Photo_Num, transform_rgb_bgr(observations["color_sensor"]))
+        cv2.imwrite('Data_collection/first_floor/depth/%d.png' %Photo_Num, transform_depth(observations["depth_sensor"]))
+        cv2.imwrite('Data_collection/first_floor/semantic/%d.png' %Photo_Num, transform_semantic(observations["semantic_sensor"]))
 
 
 
