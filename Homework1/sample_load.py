@@ -11,8 +11,9 @@ import cv2
 test_scene = "apartment_0/habitat/mesh_semantic.ply"
 
 # Data collection 
-f= open("Pose_data_1F.txt", 'a')
+f= open("GT_Pose.txt", 'w')
 
+Photo_Num=0
 
 
 sim_settings = {
@@ -129,6 +130,8 @@ print("#############################")
 
 def navigateAndSee(action=""):
     if action in action_names:
+        global Photo_Num
+        Photo_Num+=1
         observations = sim.step(action)
         print("action: ", action)
         
@@ -152,9 +155,10 @@ def navigateAndSee(action=""):
         print(sensor_state.position[0],sensor_state.position[1],sensor_state.position[2],  sensor_state.rotation.w, sensor_state.rotation.x, sensor_state.rotation.y, sensor_state.rotation.z)
         f.write(f"{sensor_state.position[0]} {sensor_state.position[1]} {sensor_state.position[2]} {sensor_state.rotation.w} {sensor_state.rotation.x} {sensor_state.rotation.y} {sensor_state.rotation.z}\n")
         # RGB list length: [512][512][3]
-        f.write(f"RGB image: {RGB_Image.tolist()}\n")
-        f.write(f"Depth_image: {Depth_Image.tolist()}\n")
-        f.write(f"Semantic_image: {Semantic_Image.tolist()}\n")
+        cv2.imwrite('rgb/%d.png' %Photo_Num, transform_rgb_bgr(observations["color_sensor"]))
+        cv2.imwrite('depth/%d.png' %Photo_Num, transform_depth(observations["depth_sensor"]))
+        cv2.imwrite('semantic/%d.png' %Photo_Num, transform_semantic(observations["semantic_sensor"]))
+
 
 
 action = "move_forward"
