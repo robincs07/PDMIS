@@ -1,3 +1,4 @@
+from turtle import width
 import numpy as np
 from PIL import Image
 import habitat_sim
@@ -8,18 +9,22 @@ import copy
 from tqdm import tqdm
 from scipy.spatial.transform import Rotation
 from sklearn.neighbors import NearestNeighbors
+import quaternion as q
 
 VOXEL_SIZE = 0.002
-NUM_OF_PHOTOS = 204
-PCD_NAME = "test_true.pcd"
+NUM_OF_PHOTOS = 189
+PCD_NAME = "final_output/test_true.pcd"
 USE_OPEN3D = True
+IMAGE_PATH = "Data_collection/first_floor"
+
+
 
 
 def get_global_trans_matrix():
-    with open("Data_collection/first_floor/GT_Pose.txt", "r") as f:
+    with open(f"{IMAGE_PATH}/GT_Pose.txt", "r") as f:
         line = f.readline()
         Position = line.split()
-        R_Matrix = Rotation.from_quat([Position[3:7]]).as_matrix().squeeze()
+        R_Matrix = q.as_rotation_matrix(q.as_quat_array([Position[3:7]]))
         T_Matrix = np.asarray(Position[0:3]).transpose()
         Trans = np.zeros((4, 4), dtype=np.float32)
         Trans[0:3, 0:3] = R_Matrix
@@ -33,10 +38,10 @@ def depth_image_to_point_cloud(Photo_Num, K_Inv):
 
     # Read rgb and depth image
     Rgb_Image = cv2.cvtColor(
-        cv2.imread("Data_collection/first_floor/rgb/%d.png" % Photo_Num),
+        cv2.imread(f"{IMAGE_PATH}/rgb/%d.png" % Photo_Num),
         cv2.COLOR_BGR2RGB)
     Depth_Image = cv2.imread(
-        "Data_collection/first_floor/depth/%d.png" % Photo_Num,
+        f"{IMAGE_PATH}/depth/%d.png" % Photo_Num,
         cv2.IMREAD_ANYDEPTH)
 
     Height, Width, _ = Rgb_Image.shape
@@ -54,13 +59,10 @@ def depth_image_to_point_cloud(Photo_Num, K_Inv):
     Pcd_Cam = Pcd_Cam.select_by_index(np.where(Points[:, 2] < 0.08)[0])
 
     # flip
-    # Pcd_Cam.transform([[1, 0, 0, 0],
-    #                    [0, -1, 0, 0],
-    #                    [0, 0, -1, 0],
-    #                    [0, 0, 0, 1]])
-
-    # visualize
-    # o3d.visualization.draw_geometries([Pcd_Cam])
+    Pcd_Cam.transform([[1, 0, 0, 0],
+                       [0, -1, 0, 0],
+                       [0, 0, -1, 0],
+                       [0, 0, 0, 1]])
 
     return Pcd_Cam
 
@@ -87,34 +89,61 @@ def intrinsic_from_fov(Height, Width, Fov=90):
 
 
 def local_icp_algorithm(Source, Target):
-    Threshold = VOXEL_SIZE * 0.4
+    Threshold = VOXEL_SIZE
     if USE_OPEN3D:
-        Global_Trans = global_registration_algorithm(Source=Source,
-                                                     Target=Target,
-                                                     Voxel_Size=VOXEL_SIZE)
-        Reg_P2l = o3d.pipelines.registration.registration_icp(
-            Source, Target, Threshold, Global_Trans.transformation,
-            o3d.pipelines.registration.TransformationEstimationPointToPoint())
-        # print(Reg_P2l)
-        # print(f"Transformation is: {Reg_P2l.transformation}")
-        return Reg_P2l.transformation
-    else:
-        Global_Trans = global_registration_algorithm(Source=Source,
-                                                     Target=Target,
-                                                     Voxel_Size=VOXEL_SIZE)
+        # global registration
+        Global_Trans, Source_down, Target_down = global_registration_algorithm(Source=Source,
+                                                                               Target=Target,
+                                                                               Voxel_Size=VOXEL_SIZE)
 
-        tgt = np.asarray(Target.points)
-        src = np.asarray(Source.points)
+        # local registration
+        Source_down.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+        Target_down.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+        Local_reg = o3d.pipelines.registration.registration_icp(
+            Source_down, Target_down, Threshold, Global_Trans.transformation,
+            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=1000))
+
+        return Local_reg.transformation
+    else:
+        Global_Trans, Source_down, Target_down = global_registration_algorithm(Source=Source,
+                                                                               Target=Target,
+                                                                               Voxel_Size=VOXEL_SIZE)                                                                               
+        Source_down.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+        Target_down.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+        
+        source_temp = copy.deepcopy(Source)
+        target_temp = copy.deepcopy(Target)
+        tgt = np.asarray(Target_down.points)
+        src = np.asarray(Source_down.points)
+
+        # Remove roof and floor
+        # min_height, max_height = np.min(src[:1]), np.max(src[:, 1])
+        # diff = max_height-min_height
+        # min_thresh, max_thresh = min_height+(0.3*diff), max_height-(0.3*diff)
+        # condition_src, condition_tgt = np.where(
+        #     src[:, 1] < min_thresh), np.where(tgt[:, 1] < min_thresh)
+        # src = np.delete(src, condition_src, axis=0)
+        # tgt = np.delete(tgt, condition_tgt, axis=0)
+        # condition_src, condition_tgt = np.where(
+        #     src[:, 1] > max_thresh), np.where(tgt[:, 1] > max_thresh)
+        # src = np.delete(src, condition_src, axis=0)
+        # tgt = np.delete(tgt, condition_tgt, axis=0)
 
         Homo_Source = np.ones((4, src.shape[0]))
         Homo_Target = np.ones((4, tgt.shape[0]))
+        
 
         Homo_Source[:3, :] = src.T
         Homo_Target[:3, :] = tgt.T
+        Ori_Src = src.T
 
         Homo_Source = Global_Trans.transformation @ Homo_Source
         All_Trans = Global_Trans.transformation
-        src = Homo_Source
 
         Prev_Error = 0
 
@@ -123,51 +152,53 @@ def local_icp_algorithm(Source, Target):
             Distances, Indices = find_near_neigh(Src=Homo_Source[:3, :].T,
                                                  Tgt=Homo_Target[:3, :].T)
 
-            Condition = np.where(Distances > 1.5 * VOXEL_SIZE)
+            Condition = np.where(Distances > 1.5*VOXEL_SIZE)
             Indices = np.delete(Indices, Condition)
-            Homo_Target = Homo_Target[:, Indices]
-            Homo_Source = np.delete(Homo_Source.T, Condition, axis=0).T
+            Homo_Source = Homo_Source[:, Indices]
+            Homo_Target = np.delete(Homo_Target.T, Condition, axis=0).T
 
             Now_Trans = get_fit_transform(Homo_Source[:3, :].T,
                                           Homo_Target[:3, :].T)
 
             Homo_Source = Now_Trans @ Homo_Source
             All_Trans = Now_Trans @ All_Trans
+            
 
             Mean_Error = np.sum(Distances) / Distances.size
-            if Prev_Error - Mean_Error < 0.000001:
+            if np.abs(Prev_Error - Mean_Error) < 0.0000001:
                 break
+            Prev_Error = Mean_Error
+        
+        # o3d.visualization.draw_geometries([target_temp, source_temp.transform(All_Trans)], width=1000, height=600)
+        
 
         return All_Trans
 
 
 def find_near_neigh(Src, Tgt):
     Near_Neigh = NearestNeighbors(n_neighbors=1)
-    Near_Neigh.fit(Tgt)
-    Distances, Indices = Near_Neigh.kneighbors(Src, return_distance=True)
-    return Distances.ravel(), Indices.ravel()
+    Near_Neigh.fit(Src)
+    Distances, Indices = Near_Neigh.kneighbors(Tgt)
+    return Distances.flatten(), Indices
 
 
 def get_fit_transform(Source, Target):
 
     Center_Source = np.mean(Source, axis=0)
     Center_Target = np.mean(Target, axis=0)
-    # print(f"Center_Source: {Center_Source}")
-    # print(f"Center_Target: {Center_Target}")
 
     Source_pl = Source - Center_Source
     Target_pl = Target - Center_Target
 
-    # W = Source_pl.T@Target_pl
-    # U, _, Vh = np.linalg.svd(W)
-    # R = Vh.T@U.T
+    
 
-    W = Target_pl.T @ Source_pl
-    U, _, Vh = np.linalg.svd(W)
+    W = Target_pl.T @ Source_pl/(Source_pl.shape[0])
+    U, d, Vh = np.linalg.svd(W)
     R = U @ Vh
 
+    
     if np.linalg.det(R) < 0:
-        print("!!!")
+        
         Vh[2, :] *= -1
         R = U @ Vh
 
@@ -184,34 +215,29 @@ def global_registration_algorithm(Source, Target, Voxel_Size):
 
     Source_Down, Source_Fpfh = preprocess_point_cloud(Source, Voxel_Size)
     Target_Down, Target_Fpfh = preprocess_point_cloud(Target, Voxel_Size)
-    Distance_Threshold = Voxel_Size
+    Global_Threshold = Voxel_Size * 1.5
     Result_RANSAC = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
         Source_Down, Target_Down, Source_Fpfh, Target_Fpfh, True,
-        Distance_Threshold,
+        Global_Threshold,
         o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
         3, [
             o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(
                 0.9),
             o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
-                Distance_Threshold)
-        ], o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.95))
-    # print(Result_RANSAC)
-    # draw_registration_result(Source, Target, Result_RANSAC.transformation)
+                Global_Threshold)
+        ], o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.999))
 
-    return Result_RANSAC
+    return Result_RANSAC, Source_Down, Target_Down
 
 
 def preprocess_point_cloud(pcd, voxel_size):
-    # print(":: Downsample with a voxel size %.3f." % voxel_size)
     pcd_down = pcd.voxel_down_sample(voxel_size)
 
     radius_normal = voxel_size * 2
-    # print(":: Estimate normal with search radius %.3f." % radius_normal)
     pcd_down.estimate_normals(
         o3d.geometry.KDTreeSearchParamHybrid(radius=radius_normal, max_nn=30))
 
     radius_feature = voxel_size * 5
-    # print(":: Compute FPFH feature with search radius %.3f." % radius_feature)
     pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
         pcd_down,
         o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature,
@@ -222,8 +248,6 @@ def preprocess_point_cloud(pcd, voxel_size):
 def draw_registration_result(source, target, transformation):
     source_temp = copy.deepcopy(source)
     target_temp = copy.deepcopy(target)
-    # source_temp.paint_uniform_color([1, 0.706, 0])
-    # target_temp.paint_uniform_color([0, 0.651, 0.929])
     source_temp.transform(transformation)
     o3d.visualization.draw_geometries([source_temp + target_temp])
 
@@ -239,10 +263,12 @@ def get_pcd_remove_ceiling(Point_Cloud):
 
 
 def main():
+    print(f"Voxel size: {VOXEL_SIZE}")
+    print(f"Dataset path: {IMAGE_PATH}")
 
     # Read image and compute K_inv
     Rgb_Image = cv2.cvtColor(
-        cv2.imread("Data_collection/first_floor/rgb/1.png"), cv2.COLOR_BGR2RGB)
+        cv2.imread(f"{IMAGE_PATH}/rgb/1.png"), cv2.COLOR_BGR2RGB)
     Height, Width, _ = Rgb_Image.shape
     K = intrinsic_from_fov(Height, Width, 90)
     K_Inv = np.linalg.inv(K)
@@ -254,30 +280,37 @@ def main():
         Point_Cloud = depth_image_to_point_cloud(Photo_Num, K_Inv)
         Point_Cloud_List.append(Point_Cloud)
 
-    # append transformation matrix of cam_2 coordinate to cam_1 coordiante to list
-    Camera1_Trans_List = []
-    Previous_Trans_List = []
-    Trans = local_icp_algorithm(Source=Point_Cloud_List[1],
-                                Target=Point_Cloud_List[0])
-    Camera1_Trans_List.append(Trans)
-    Previous_Trans_List.append(Trans)
-
     # Compute the extrinsic matrix to previous camera coordinate
+    Camera1_Trans_List = []
+    Camera1_Trans_List.append(np.identity(4))
     print("Compute Extrinsic Matrix:")
-    for i in tqdm(range(1, NUM_OF_PHOTOS - 1), leave=True):
+    for i in tqdm(range(0, NUM_OF_PHOTOS-1), leave=True):
+        if i<=10:
+            temp_pointcloud = Point_Cloud_List[0]
+            for j in range(1, i+1):
+                temp_pointcloud +=Point_Cloud_List[j]
+                
+        else:
+            temp_pointcloud = Point_Cloud_List[i]
+            for j in range(1,10):
+                temp_pointcloud += Point_Cloud_List[i-j]
+
         Trans = local_icp_algorithm(Source=Point_Cloud_List[i + 1],
-                                    Target=Point_Cloud_List[i])
-        Camera1_Trans_List.append(Camera1_Trans_List[i - 1] @ Trans)
-        Previous_Trans_List.append(Trans)
-
+                                    Target=temp_pointcloud)
+        Point_Cloud_List[i+1].transform(Trans)
+        Camera1_Trans_List.append(Trans)
+        
+    
     # Align the point cloud
-    print("Align Point Cloud:")
-    for i in tqdm(range(1, NUM_OF_PHOTOS)):
-        Point_Cloud_List[i].transform(Camera1_Trans_List[i - 1])
+    # print("Align Point Cloud:")
+    # for i in tqdm(range(0, NUM_OF_PHOTOS)):
+    #     Point_Cloud_List[i].transform(Camera1_Trans_List[i])
 
+    # coordinate
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
         size=0.01, origin=[0, 0, 0])
 
+    # add all point cloud to one point cloud
     All_Point_Cloud = Point_Cloud_List[0]
     for i in range(1, NUM_OF_PHOTOS):
         All_Point_Cloud += Point_Cloud_List[i]
@@ -289,21 +322,17 @@ def main():
     # Read Position file , Adjust the line point and save it to list
     Position_List = []
     Cam_1_Pose = []
-    with open("Data_collection/first_floor/GT_Pose.txt", "r") as f:
+    with open(f"{IMAGE_PATH}/GT_Pose.txt", "r") as f:
         for f_idx, line in enumerate(f):
             Position = line.split()
-
             for idx, item in enumerate(Position):
                 item = float(item)
                 Position[idx] = item
-
             if f_idx == 0:
                 Cam_1_Pose = Position
-
             for i in range(0, 3):
                 Position[i] = ((Position[i] - Cam_1_Pose[i]) / 10 * 255 /
                                1000) + Cam_1_Pose[i]
-
             Position_List.append(Position[0:3])
 
     # Create line set of ground truth trajectory
@@ -322,19 +351,23 @@ def main():
     Camera1_To_Global = get_global_trans_matrix()
     for idx, matrix in enumerate(Camera1_Trans_List):
         Estimate_Camera_Pose.append((Camera1_To_Global @ matrix[:4, 3])[:3])
-    # print("lenth: ", len(Estimate_Camera_Pose))
+    
     # Draw the estimate trajectory
     Line_Set_Estimate = o3d.geometry.LineSet()
-    Line_Set_Estimate.points = o3d.utility.Vector3dVector(
-        Estimate_Camera_Pose[:NUM_OF_PHOTOS])
-    Line_Set_Estimate.lines = o3d.utility.Vector2iVector(
-        Line_List[:NUM_OF_PHOTOS - 1])
+    Line_Set_Estimate.points = o3d.utility.Vector3dVector(Estimate_Camera_Pose[1:NUM_OF_PHOTOS+1])
+    Line_Set_Estimate.lines = o3d.utility.Vector2iVector(Line_List[:NUM_OF_PHOTOS - 1])
     Line_Set_Estimate.paint_uniform_color([0, 0, 1])
+    print(np.asarray(Position_List[:NUM_OF_PHOTOS]).shape)
+
+    # compute mean square error
+    MSE = (np.square(np.asarray(Position_List[:NUM_OF_PHOTOS])-np.asarray(Estimate_Camera_Pose[1:])).mean())*1000/255*10
+    print(f"Mean Square Error: {MSE}")
 
     # Visualize
     o3d.visualization.draw_geometries(
         [Point_Cloud_Without_Ceiling, Line_Set_GT, Line_Set_Estimate])
 
+    # write the point cloud to file
     o3d.io.write_point_cloud(PCD_NAME, Point_Cloud_Without_Ceiling)
 
 

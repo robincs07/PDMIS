@@ -9,9 +9,11 @@ import cv2
 # support a variety of mesh formats, such as .glb, .gltf, .obj, .ply
 ### put your scene path ###
 test_scene = "apartment_0/habitat/mesh_semantic.ply"
+IMAGE_PATH = "Data_collection/first_floor"
+
 
 # Data collection
-f = open("Data_collection/first_floor/GT_Pose.txt", "w")
+f = open(f"{IMAGE_PATH}/GT_Pose.txt", "w")
 
 Photo_Num = 0
 
@@ -41,7 +43,8 @@ def transform_depth(image):
 
 
 def transform_semantic(semantic_obs):
-    semantic_img = Image.new("P", (semantic_obs.shape[1], semantic_obs.shape[0]))
+    semantic_img = Image.new(
+        "P", (semantic_obs.shape[1], semantic_obs.shape[0]))
     semantic_img.putpalette(d3_40_colors_rgb.flatten())
     semantic_img.putdata((semantic_obs.flatten() % 40).astype(np.uint8))
     semantic_img = semantic_img.convert("RGB")
@@ -107,7 +110,8 @@ agent.set_state(agent_state)
 
 # obtain the default, discrete actions that an agent can perform
 # default action space contains 3 actions: move_forward, turn_left, and turn_right
-action_names = list(cfg.agents[sim_settings["default_agent"]].action_space.keys())
+action_names = list(
+    cfg.agents[sim_settings["default_agent"]].action_space.keys())
 print("Discrete action space: ", action_names)
 
 
@@ -133,7 +137,8 @@ def navigateAndSee(action=""):
 
         cv2.imshow("RGB", transform_rgb_bgr(observations["color_sensor"]))
         cv2.imshow("depth", transform_depth(observations["depth_sensor"]))
-        cv2.imshow("semantic", transform_semantic(observations["semantic_sensor"]))
+        cv2.imshow("semantic", transform_semantic(
+            observations["semantic_sensor"]))
 
         # RGB_Image shape: (512, 512, 3), Depth_Image shape: (512, 512, 1), Semantic_Image shape: (512, 512, 3)
         # print(RGB_Image.shape)
@@ -157,15 +162,15 @@ def navigateAndSee(action=""):
         )
         # RGB list length: [512][512][3]
         cv2.imwrite(
-            "Data_collection/first_floor/rgb/%d.png" % Photo_Num,
+            f"{IMAGE_PATH}/rgb/%d.png" % Photo_Num,
             transform_rgb_bgr(observations["color_sensor"]),
         )
         cv2.imwrite(
-            "Data_collection/first_floor/depth/%d.png" % Photo_Num,
+            f"{IMAGE_PATH}/depth/%d.png" % Photo_Num,
             transform_depth(observations["depth_sensor"]),
         )
         cv2.imwrite(
-            "Data_collection/first_floor/semantic/%d.png" % Photo_Num,
+            f"{IMAGE_PATH}/semantic/%d.png" % Photo_Num,
             transform_semantic(observations["semantic_sensor"]),
         )
 
