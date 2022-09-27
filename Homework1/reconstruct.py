@@ -12,12 +12,10 @@ from sklearn.neighbors import NearestNeighbors
 import quaternion as q
 
 VOXEL_SIZE = 0.002
-NUM_OF_PHOTOS = 189
+NUM_OF_PHOTOS = 160
 PCD_NAME = "final_output/test_true.pcd"
-USE_OPEN3D = True
+USE_OPEN3D = False
 IMAGE_PATH = "Data_collection/first_floor"
-
-
 
 
 def get_global_trans_matrix():
@@ -110,12 +108,12 @@ def local_icp_algorithm(Source, Target):
     else:
         Global_Trans, Source_down, Target_down = global_registration_algorithm(Source=Source,
                                                                                Target=Target,
-                                                                               Voxel_Size=VOXEL_SIZE)                                                                               
+                                                                               Voxel_Size=VOXEL_SIZE)
         Source_down.estimate_normals(
             search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
         Target_down.estimate_normals(
             search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-        
+
         source_temp = copy.deepcopy(Source)
         target_temp = copy.deepcopy(Target)
         tgt = np.asarray(Target_down.points)
@@ -124,7 +122,7 @@ def local_icp_algorithm(Source, Target):
         # Remove roof and floor
         # min_height, max_height = np.min(src[:1]), np.max(src[:, 1])
         # diff = max_height-min_height
-        # min_thresh, max_thresh = min_height+(0.3*diff), max_height-(0.3*diff)
+        # min_thresh, max_thresh = min_height+(0.2*diff), max_height-(0.2*diff)
         # condition_src, condition_tgt = np.where(
         #     src[:, 1] < min_thresh), np.where(tgt[:, 1] < min_thresh)
         # src = np.delete(src, condition_src, axis=0)
@@ -136,7 +134,6 @@ def local_icp_algorithm(Source, Target):
 
         Homo_Source = np.ones((4, src.shape[0]))
         Homo_Target = np.ones((4, tgt.shape[0]))
-        
 
         Homo_Source[:3, :] = src.T
         Homo_Target[:3, :] = tgt.T
@@ -162,15 +159,13 @@ def local_icp_algorithm(Source, Target):
 
             Homo_Source = Now_Trans @ Homo_Source
             All_Trans = Now_Trans @ All_Trans
-            
 
             Mean_Error = np.sum(Distances) / Distances.size
             if np.abs(Prev_Error - Mean_Error) < 0.0000001:
                 break
             Prev_Error = Mean_Error
-        
+
         # o3d.visualization.draw_geometries([target_temp, source_temp.transform(All_Trans)], width=1000, height=600)
-        
 
         return All_Trans
 
@@ -190,15 +185,12 @@ def get_fit_transform(Source, Target):
     Source_pl = Source - Center_Source
     Target_pl = Target - Center_Target
 
-    
-
     W = Target_pl.T @ Source_pl/(Source_pl.shape[0])
     U, d, Vh = np.linalg.svd(W)
     R = U @ Vh
 
-    
     if np.linalg.det(R) < 0:
-        
+
         Vh[2, :] *= -1
         R = U @ Vh
 
@@ -285,22 +277,12 @@ def main():
     Camera1_Trans_List.append(np.identity(4))
     print("Compute Extrinsic Matrix:")
     for i in tqdm(range(0, NUM_OF_PHOTOS-1), leave=True):
-        if i<=10:
-            temp_pointcloud = Point_Cloud_List[0]
-            for j in range(1, i+1):
-                temp_pointcloud +=Point_Cloud_List[j]
-                
-        else:
-            temp_pointcloud = Point_Cloud_List[i]
-            for j in range(1,10):
-                temp_pointcloud += Point_Cloud_List[i-j]
-
+        temp_pointcloud = Point_Cloud_List[i]
         Trans = local_icp_algorithm(Source=Point_Cloud_List[i + 1],
                                     Target=temp_pointcloud)
         Point_Cloud_List[i+1].transform(Trans)
         Camera1_Trans_List.append(Trans)
-        
-    
+
     # Align the point cloud
     # print("Align Point Cloud:")
     # for i in tqdm(range(0, NUM_OF_PHOTOS)):
@@ -351,16 +333,19 @@ def main():
     Camera1_To_Global = get_global_trans_matrix()
     for idx, matrix in enumerate(Camera1_Trans_List):
         Estimate_Camera_Pose.append((Camera1_To_Global @ matrix[:4, 3])[:3])
-    
+
     # Draw the estimate trajectory
     Line_Set_Estimate = o3d.geometry.LineSet()
-    Line_Set_Estimate.points = o3d.utility.Vector3dVector(Estimate_Camera_Pose[1:NUM_OF_PHOTOS+1])
-    Line_Set_Estimate.lines = o3d.utility.Vector2iVector(Line_List[:NUM_OF_PHOTOS - 1])
+    Line_Set_Estimate.points = o3d.utility.Vector3dVector(
+        Estimate_Camera_Pose[1:NUM_OF_PHOTOS+1])
+    Line_Set_Estimate.lines = o3d.utility.Vector2iVector(
+        Line_List[:NUM_OF_PHOTOS - 1])
     Line_Set_Estimate.paint_uniform_color([0, 0, 1])
     print(np.asarray(Position_List[:NUM_OF_PHOTOS]).shape)
 
     # compute mean square error
-    MSE = (np.square(np.asarray(Position_List[:NUM_OF_PHOTOS])-np.asarray(Estimate_Camera_Pose[1:])).mean())*1000/255*10
+    MSE = (np.square(np.asarray(
+        Position_List[:NUM_OF_PHOTOS])-np.asarray(Estimate_Camera_Pose[1:])).mean())*1000/255*10
     print(f"Mean Square Error: {MSE}")
 
     # Visualize
