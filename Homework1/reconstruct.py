@@ -1,4 +1,3 @@
-from turtle import width
 import numpy as np
 from PIL import Image
 import habitat_sim
@@ -10,19 +9,22 @@ from tqdm import tqdm
 from scipy.spatial.transform import Rotation
 from sklearn.neighbors import NearestNeighbors
 import quaternion as q
+import sys
+
 
 VOXEL_SIZE = 0.002
-NUM_OF_PHOTOS = 160
-PCD_NAME = "final_output/test_true.pcd"
+NUM_OF_PHOTOS = int(sys.argv[3])
+PCD_NAME = "final_output/{}.pcd".format(sys.argv[2])
 USE_OPEN3D = False
-IMAGE_PATH = "Data_collection/first_floor"
+IMAGE_PATH = "Data_collection/{}".format(sys.argv[1])
 
 
 def get_global_trans_matrix():
     with open(f"{IMAGE_PATH}/GT_Pose.txt", "r") as f:
         line = f.readline()
         Position = line.split()
-        R_Matrix = q.as_rotation_matrix(q.as_quat_array([Position[3:7]]))
+        R_Matrix = q.as_rotation_matrix(
+            q.as_quat_array([Position[3:7]])).squeeze()
         T_Matrix = np.asarray(Position[0:3]).transpose()
         Trans = np.zeros((4, 4), dtype=np.float32)
         Trans[0:3, 0:3] = R_Matrix
@@ -96,9 +98,9 @@ def local_icp_algorithm(Source, Target):
 
         # local registration
         Source_down.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.04, max_nn=30))
         Target_down.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.04, max_nn=30))
         Local_reg = o3d.pipelines.registration.registration_icp(
             Source_down, Target_down, Threshold, Global_Trans.transformation,
             o3d.pipelines.registration.TransformationEstimationPointToPlane(),
@@ -109,59 +111,57 @@ def local_icp_algorithm(Source, Target):
         Global_Trans, Source_down, Target_down = global_registration_algorithm(Source=Source,
                                                                                Target=Target,
                                                                                Voxel_Size=VOXEL_SIZE)
-        Source_down.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-        Target_down.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
 
-        source_temp = copy.deepcopy(Source)
-        target_temp = copy.deepcopy(Target)
+        # source_temp = copy.deepcopy(Source)
+        # target_temp = copy.deepcopy(Target)
         tgt = np.asarray(Target_down.points)
         src = np.asarray(Source_down.points)
 
         # Remove roof and floor
-        # min_height, max_height = np.min(src[:1]), np.max(src[:, 1])
-        # diff = max_height-min_height
-        # min_thresh, max_thresh = min_height+(0.2*diff), max_height-(0.2*diff)
-        # condition_src, condition_tgt = np.where(
-        #     src[:, 1] < min_thresh), np.where(tgt[:, 1] < min_thresh)
-        # src = np.delete(src, condition_src, axis=0)
-        # tgt = np.delete(tgt, condition_tgt, axis=0)
-        # condition_src, condition_tgt = np.where(
-        #     src[:, 1] > max_thresh), np.where(tgt[:, 1] > max_thresh)
-        # src = np.delete(src, condition_src, axis=0)
-        # tgt = np.delete(tgt, condition_tgt, axis=0)
+        min_height, max_height = np.min(src[:1]), np.max(src[:, 1])
+        diff = max_height-min_height
+        min_thresh, max_thresh = min_height+(0.1*diff), max_height-(0.1*diff)
+        condition_src, condition_tgt = np.where(
+            src[:, 1] < min_thresh), np.where(tgt[:, 1] < min_thresh)
+        src = np.delete(src, condition_src, axis=0)
+        tgt = np.delete(tgt, condition_tgt, axis=0)
+        condition_src, condition_tgt = np.where(
+            src[:, 1] > max_thresh), np.where(tgt[:, 1] > max_thresh)
+        src = np.delete(src, condition_src, axis=0)
+        tgt = np.delete(tgt, condition_tgt, axis=0)
 
         Homo_Source = np.ones((4, src.shape[0]))
         Homo_Target = np.ones((4, tgt.shape[0]))
 
         Homo_Source[:3, :] = src.T
         Homo_Target[:3, :] = tgt.T
-        Ori_Src = src.T
 
         Homo_Source = Global_Trans.transformation @ Homo_Source
         All_Trans = Global_Trans.transformation
 
         Prev_Error = 0
 
-        for i in range(20):
+        for i in range(100):
 
             Distances, Indices = find_near_neigh(Src=Homo_Source[:3, :].T,
                                                  Tgt=Homo_Target[:3, :].T)
 
-            Condition = np.where(Distances > 1.5*VOXEL_SIZE)
-            Indices = np.delete(Indices, Condition)
-            Homo_Source = Homo_Source[:, Indices]
-            Homo_Target = np.delete(Homo_Target.T, Condition, axis=0).T
+            temp_source = Homo_Source
+            temp_target = Homo_Target
 
-            Now_Trans = get_fit_transform(Homo_Source[:3, :].T,
-                                          Homo_Target[:3, :].T)
+            Condition = np.where(Distances > VOXEL_SIZE)
+            Indices = np.delete(Indices, Condition)
+            temp_target = temp_target[:, Indices]
+            temp_source = np.delete(temp_source.T, Condition, axis=0).T
+
+            Now_Trans = get_fit_transform(temp_source[:3, :].T,
+                                          temp_target[:3, :].T)
 
             Homo_Source = Now_Trans @ Homo_Source
             All_Trans = Now_Trans @ All_Trans
 
             Mean_Error = np.sum(Distances) / Distances.size
-            if np.abs(Prev_Error - Mean_Error) < 0.0000001:
+            if np.abs(Prev_Error - Mean_Error) < 0.00000001:
                 break
             Prev_Error = Mean_Error
 
@@ -172,9 +172,9 @@ def local_icp_algorithm(Source, Target):
 
 def find_near_neigh(Src, Tgt):
     Near_Neigh = NearestNeighbors(n_neighbors=1)
-    Near_Neigh.fit(Src)
-    Distances, Indices = Near_Neigh.kneighbors(Tgt)
-    return Distances.flatten(), Indices
+    Near_Neigh.fit(Tgt)
+    Distances, Indices = Near_Neigh.kneighbors(Src, return_distance=True)
+    return Distances.flatten(), Indices.ravel()
 
 
 def get_fit_transform(Source, Target):
@@ -182,15 +182,20 @@ def get_fit_transform(Source, Target):
     Center_Source = np.mean(Source, axis=0)
     Center_Target = np.mean(Target, axis=0)
 
-    Source_pl = Source - Center_Source
-    Target_pl = Target - Center_Target
+    Source_pl = np.ones(Source.shape)
+    Target_pl = np.ones(Target.shape)
+    for i in range(Source.shape[0]):
+        Source_pl[i] = Source[i] - Center_Source
+    for i in range(Target.shape[0]):
+        Target_pl[i] = Target[i] - Center_Target
+    # print(Source_pl.shape)
+    # print(Target_pl.shape)
 
-    W = Target_pl.T @ Source_pl/(Source_pl.shape[0])
+    W = Target_pl.T @ Source_pl
     U, d, Vh = np.linalg.svd(W)
     R = U @ Vh
 
     if np.linalg.det(R) < 0:
-
         Vh[2, :] *= -1
         R = U @ Vh
 
@@ -277,7 +282,10 @@ def main():
     Camera1_Trans_List.append(np.identity(4))
     print("Compute Extrinsic Matrix:")
     for i in tqdm(range(0, NUM_OF_PHOTOS-1), leave=True):
-        temp_pointcloud = Point_Cloud_List[i]
+        if i == 0:
+            temp_pointcloud = Point_Cloud_List[0]
+        else:
+            temp_pointcloud = Point_Cloud_List[i] + Point_Cloud_List[i-1]
         Trans = local_icp_algorithm(Source=Point_Cloud_List[i + 1],
                                     Target=temp_pointcloud)
         Point_Cloud_List[i+1].transform(Trans)
@@ -341,7 +349,6 @@ def main():
     Line_Set_Estimate.lines = o3d.utility.Vector2iVector(
         Line_List[:NUM_OF_PHOTOS - 1])
     Line_Set_Estimate.paint_uniform_color([0, 0, 1])
-    print(np.asarray(Position_List[:NUM_OF_PHOTOS]).shape)
 
     # compute mean square error
     MSE = (np.square(np.asarray(

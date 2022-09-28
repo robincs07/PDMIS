@@ -9,7 +9,7 @@ import cv2
 # support a variety of mesh formats, such as .glb, .gltf, .obj, .ply
 ### put your scene path ###
 test_scene = "apartment_0/habitat/mesh_semantic.ply"
-IMAGE_PATH = "Data_collection/first_floor"
+IMAGE_PATH = "Data_collection/second_floor"
 
 
 # Data collection
@@ -105,7 +105,7 @@ agent = sim.initialize_agent(sim_settings["default_agent"])
 
 # Set agent state
 agent_state = habitat_sim.AgentState()
-agent_state.position = np.array([0.0, 0.0, 0.0])  # agent in world space
+agent_state.position = np.array([0.0, 1.0, 0.0])  # agent in world space
 agent.set_state(agent_state)
 
 # obtain the default, discrete actions that an agent can perform
