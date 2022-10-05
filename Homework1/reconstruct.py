@@ -15,7 +15,7 @@ import sys
 VOXEL_SIZE = 0.002
 NUM_OF_PHOTOS = int(sys.argv[3])
 PCD_NAME = "final_output/{}.pcd".format(sys.argv[2])
-USE_OPEN3D = False
+USE_OPEN3D = True
 IMAGE_PATH = "Data_collection/{}".format(sys.argv[1])
 
 
@@ -120,7 +120,7 @@ def local_icp_algorithm(Source, Target):
         # Remove roof and floor
         min_height, max_height = np.min(src[:1]), np.max(src[:, 1])
         diff = max_height-min_height
-        min_thresh, max_thresh = min_height+(0.1*diff), max_height-(0.1*diff)
+        min_thresh, max_thresh = min_height+(0.05*diff), max_height-(0.05*diff)
         condition_src, condition_tgt = np.where(
             src[:, 1] < min_thresh), np.where(tgt[:, 1] < min_thresh)
         src = np.delete(src, condition_src, axis=0)
@@ -161,11 +161,9 @@ def local_icp_algorithm(Source, Target):
             All_Trans = Now_Trans @ All_Trans
 
             Mean_Error = np.sum(Distances) / Distances.size
-            if np.abs(Prev_Error - Mean_Error) < 0.00000001:
+            if np.abs(Prev_Error - Mean_Error) < 0.000000001:
                 break
             Prev_Error = Mean_Error
-
-        # o3d.visualization.draw_geometries([target_temp, source_temp.transform(All_Trans)], width=1000, height=600)
 
         return All_Trans
 
