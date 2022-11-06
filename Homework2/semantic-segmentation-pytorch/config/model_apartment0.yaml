@@ -1,0 +1,42 @@
+DATASET:
+  root_dataset: "../"
+  list_train: "../dataset_apartment0/training.odgt"
+  list_val: "../dataset_apartment0/validation.odgt"
+  num_class: 101
+  imgSizes: (512, )
+  imgMaxSize: 512
+  padding_constant: 32
+  segm_downsampling_rate: 4
+  random_flip: True
+
+MODEL:
+  arch_encoder: "hrnetv2"
+  arch_decoder: "c1"
+  fc_dim: 720
+
+TRAIN:
+  batch_size_per_gpu: 16
+  num_epoch: 50
+  start_epoch: 30
+  epoch_iters: 82 # training_size / batch_size
+  optim: "SGD"
+  lr_encoder: 0.02
+  lr_decoder: 0.02
+  lr_pow: 0.9
+  beta1: 0.9
+  weight_decay: 1e-4
+  deep_sup_scale: 0.4
+  fix_bn: False
+  workers: 16
+  disp_iter: 20
+  seed: 304
+
+VAL:
+  visualize: True
+  checkpoint: "epoch_50.pth"
+
+TEST:
+  checkpoint: "epoch_50.pth"
+  result: "../HW1_Datacollect/second_floor/pred_semantic_apartment0"
+
+DIR: "ckpt/model_apartment0"
